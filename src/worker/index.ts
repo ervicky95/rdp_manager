@@ -5,7 +5,7 @@ import { generateSecret, generateAgentId, hashSecret, timingSafeEqual } from '@/
 import { createEnrollmentToken, requireEnrollmentSecrets, serverNowIso } from '@/lib/enrollment';
 import type { EnrollmentSecrets } from '@/lib/enrollment';
 import { nowISO } from '@/lib/db/client';
-import { default as vinextHandler } from 'vinext/server/fetch-handler';
+import handler from 'vinext/server/app-router-entry';
 
 export interface Env {
   DB: D1Database;
@@ -356,7 +356,7 @@ export default {
 
       // Delegate all other routes to the Vinext/App Router handler.
       // This handles page routes (/, /login, /dashboard, /vms/[id]) and Next.js API routes.
-      return await vinextHandler(request, env, ctx);
+      return await handler.fetch(request);
     } catch (error) {
       // Do not log request bodies or credentials; log only the error type.
       const message = error instanceof Error ? error.message : 'Internal error';
