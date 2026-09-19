@@ -1,562 +1,628 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
-import { Header } from '@/components/Header';
-import { StatsBar } from '@/components/StatsBar';
-import { VMCard } from '@/components/VMCard';
-import { EmptyState } from '@/components/EmptyState';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Modal } from '@/components/ui/Modal';
-import { Card, CardContent } from '@/components/ui/Card';
-import type { VM, Command } from '@/types/vm';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 
-interface APIVM {
+type VM = {
   id: string;
   name: string;
   ip_address: string;
-  status: 'running' | 'stopped' | 'starting' | 'stopping';
+  status: string;
   agent_id: string | null;
   agent_version: string | null;
   windows_version: string | null;
   cpu_percent: number;
   ram_percent: number;
   disk_percent: number;
-  rdp_status: 'healthy' | 'degraded' | 'unknown' | 'unreachable';
+  rdp_status: string;
   uptime_seconds: number;
-  last_seen: string;
+  last_seen: string | null;
   created_at: string;
+};
+
+type TokenInfo = {
+  vmName: string;
+  token: string;
+  expiresAt: string;
+};
+
+function formatLastSeen(value: string | null) {
+  if (!value) return 'Never';
+
+  const time = new Date(value).getTime();
+  if (Number.isNaN(time)) return value;
+
+  const minutes = Math.floor((Date.now() - time) / 60000);
+
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
-function mapAPIVMToVM(vm: APIVM): VM {
-  return {
-    id: vm.id,
-    name: vm.name,
-    ip: vm.ip_address,
-    status: vm.status,
-    os: vm.windows_version || 'Windows',
-    agentVersion: vm.agent_version || 'unknown',
-    lastSeen: vm.last_seen,
-    rdpHealth: vm.rdp_status,
-    cpu: vm.cpu_percent,
-    ram: vm.ram_percent,
-    disk: vm.disk_percent,
-    createdAt: vm.created_at,
-  };
+function statusColor(status: string) {
+  const value = status.toLowerCase();
+
+  if (value === 'running' || value === 'online') {
+    return 'bg-green-500/15 text-green-400';
+  }
+
+  if (value === 'starting' || value === 'stopping') {
+    return 'bg-yellow-500/15 text-yellow-400';
+  }
+
+  return 'bg-red-500/15 text-red-400';
 }
 
-function calculateStats(vms: VM[]) {
-  return {
-    total: vms.length,
-    running: vms.filter((v) => v.status === 'running').length,
-    stopped: vms.filter((v) => v.status === 'stopped').length,
-    healthy: vms.filter((v) => v.rdpHealth === 'healthy').length,
-  };
-}
+function rdpColor(status: string) {
+  const value = status.toLowerCase();
 
-type SortBy = 'name' | 'cpu' | 'ram' | 'disk' | 'lastSeen' | 'createdAt';
-type SortOrder = 'asc' | 'desc';
-type StatusFilter = 'all' | 'running' | 'stopped' | 'starting' | 'stopping';
-type RDPFilter = 'all' | 'healthy' | 'degraded' | 'unknown' | 'unreachable';
+  if (value === 'healthy') {
+    return 'bg-green-500/15 text-green-400';
+  }
+
+  if (value === 'degraded') {
+    return 'bg-yellow-500/15 text-yellow-400';
+  }
+
+  return 'bg-slate-500/20 text-slate-300';
+}
 
 export default function DashboardPage() {
   const [vms, setVms] = useState<VM[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [rdpFilter, setRdpFilter] = useState<RDPFilter>('all');
-  const [onlineOnly, setOnlineOnly] = useState(false);
-  const [sortBy, setSortBy] = useState<SortBy>('createdAt');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newVMName, setNewVMName] = useState('');
-  const [newVMIP, setNewVMIP] = useState('');
-  const [deleteVMId, setDeleteVMId] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [busy, setBusy] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [name, setName] = useState('');
+  const [ipAddress, setIpAddress] = useState('');
+  const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
 
-  const fetchVMs = useCallback(async () => {
+  async function loadVMs() {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      if (searchQuery) params.set('search', searchQuery);
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      if (rdpFilter !== 'all') params.set('rdp_status', rdpFilter);
-      if (onlineOnly) params.set('online', 'true');
-      params.set('sort_by', sortBy);
-      params.set('sort_order', sortOrder);
-      params.set('limit', '100');
+      setError('');
 
-      const res = await fetch(`/api/vms?${params.toString()}`);
-      if (!res.ok) {
-        if (res.status === 401) {
-          window.location.href = '/login?redirect=/dashboard';
-          return;
-        }
-        throw new Error('Failed to fetch VMs');
+      const response = await fetch('/api/vms?limit=100', {
+        cache: 'no-store',
+      });
+
+      if (response.status === 401) {
+        window.location.href = '/login?redirect=/dashboard';
+        return;
       }
-      const data = await res.json();
-      setVms(data.vms.map(mapAPIVMToVM));
-      setError(null);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load VMs');
+      }
+
+      setVms(Array.isArray(data.vms) ? data.vms : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load VMs');
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, statusFilter, rdpFilter, onlineOnly, sortBy, sortOrder]);
+  }
 
   useEffect(() => {
-    fetchVMs();
-    // Poll for updates every 30 seconds
-    const interval = setInterval(fetchVMs, 30000);
-    return () => clearInterval(interval);
-  }, [fetchVMs]);
+    loadVMs();
+  }, []);
 
-  const handleSort = (field: SortBy) => {
-    if (sortBy === field) {
-      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortOrder('asc');
+  const filteredVMs = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) return vms;
+
+    return vms.filter((vm) =>
+      vm.name.toLowerCase().includes(query) ||
+      vm.ip_address.toLowerCase().includes(query)
+    );
+  }, [vms, search]);
+
+  const running = vms.filter((vm) => vm.status === 'running').length;
+  const stopped = vms.filter((vm) => vm.status === 'stopped').length;
+  const healthy = vms.filter((vm) => vm.rdp_status === 'healthy').length;
+
+  async function performAction(
+    vm: VM,
+    action: 'status' | 'rdp-check' | 'restart' | 'shutdown'
+  ) {
+    const key = `${vm.id}:${action}`;
+
+    if (action === 'restart' || action === 'shutdown') {
+      const confirmed = window.confirm(
+        action === 'restart'
+          ? `Restart Windows on "${vm.name}"?`
+          : `Shut down Windows on "${vm.name}"?`
+      );
+
+      if (!confirmed) return;
     }
-  };
 
-  const handleAction = async (vmId: string, action: 'restart' | 'shutdown' | 'status' | 'rdp_check') => {
-    setActionLoading(vmId);
     try {
-      const res = await fetch(`/api/vms/${vmId}/${action}`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json();
-        if (res.status === 429) {
-          throw new Error(`${err.error} Try again after ${new Date(err.resetAt).toLocaleTimeString()}.`);
-        }
-        throw new Error(err.error || `Failed to ${action}`);
-      }
-      // Refresh VMs after action
-      await fetchVMs();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : `Failed to ${action}`);
-    } finally {
-      setActionLoading(null);
-    }
-  };
+      setBusy(key);
+      setError('');
 
-  const handleDelete = (id: string) => {
-    setDeleteVMId(id);
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteVMId) return;
-    setActionLoading(deleteVMId);
-    try {
-      const res = await fetch(`/api/vms/${deleteVMId}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to delete VM');
-      }
-      await fetchVMs();
-      setDeleteVMId(null);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete VM');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleAddVM = async () => {
-    if (!newVMName || !newVMIP) return;
-    setActionLoading('add');
-    try {
-      const res = await fetch('/api/vms', {
+      const response = await fetch(`/api/vms/${vm.id}/${action}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newVMName.trim(), ip_address: newVMIP.trim() }),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to add VM');
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to ${action}`);
       }
-      const data = await res.json();
-      // Show enrollment token to user
-      try {
-          await navigator.clipboard.writeText(data.enrollment_token);
-          alert(`VM created! The enrollment token was copied to your clipboard.\n\nExpires: ${data.expires_at}`);
-        } catch {
-          window.prompt('Copy the enrollment token now:', data.enrollment_token);
-        }
-      setShowAddModal(false);
-      setNewVMName('');
-      setNewVMIP('');
-      await fetchVMs();
+
+      await loadVMs();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to add VM');
+      setError(err instanceof Error ? err.message : `Failed to ${action}`);
     } finally {
-      setActionLoading(null);
+      setBusy('');
     }
-  };
+  }
 
-  const isActionDisabled = (vm: VM) => actionLoading === vm.id || !['running', 'starting', 'stopping'].includes(vm.status);
-
-  const stats = calculateStats(vms);
-
-  const sortIcon = (field: SortBy) => {
-    if (sortBy !== field) return (
-      <svg className="w-4 h-4 text-surface-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4M17 16V4m0 0l4 4m-4-4l-4 4" />
-      </svg>
+  async function deleteVM(vm: VM) {
+    const confirmed = window.confirm(
+      `Delete "${vm.name}" from RDP Manager? This removes only application records. It will not contact or modify the Windows VM.`
     );
-    return sortOrder === 'asc' ? (
-      <svg className="w-4 h-4 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-      </svg>
-    ) : (
-      <svg className="w-4 h-4 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-      </svg>
-    );
-  };
 
-  const sortableHeaders = [
-    { key: 'name' as SortBy, label: 'Name' },
-    { key: 'cpu' as SortBy, label: 'CPU %' },
-    { key: 'ram' as SortBy, label: 'RAM %' },
-    { key: 'disk' as SortBy, label: 'Disk %' },
-    { key: 'lastSeen' as SortBy, label: 'Last Seen' },
-    { key: 'createdAt' as SortBy, label: 'Created' },
-  ];
+    if (!confirmed) return;
+
+    try {
+      setBusy(`${vm.id}:delete`);
+      setError('');
+
+      const response = await fetch(`/api/vms/${vm.id}`, {
+        method: 'DELETE',
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete VM');
+      }
+
+      await loadVMs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete VM');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function createVM(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!name.trim() || !ipAddress.trim()) {
+      setError('VM name and IP address are required');
+      return;
+    }
+
+    try {
+      setBusy('add');
+      setError('');
+
+      const response = await fetch('/api/vms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: name.trim(),
+          ip_address: ipAddress.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to add VM');
+      }
+
+      setShowAdd(false);
+      setName('');
+      setIpAddress('');
+
+      if (data.enrollment_token) {
+        setTokenInfo({
+          vmName: data.vm?.name || name.trim(),
+          token: data.enrollment_token,
+          expiresAt: data.expires_at,
+        });
+        setTokenCopied(false);
+      }
+
+      await loadVMs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add VM');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function generateToken(vm: VM) {
+    try {
+      setBusy(`${vm.id}:token`);
+      setError('');
+
+      const response = await fetch(
+        `/api/vms/${vm.id}/enrollment-token`,
+        {
+          method: 'POST',
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate enrollment token');
+      }
+
+      setTokenInfo({
+        vmName: vm.name,
+        token: data.enrollment_token,
+        expiresAt: data.expires_at,
+      });
+      setTokenCopied(false);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to generate enrollment token'
+      );
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function copyToken() {
+    if (!tokenInfo) return;
+
+    try {
+      await navigator.clipboard.writeText(tokenInfo.token);
+      setTokenCopied(true);
+    } catch {
+      window.prompt(
+        'Copy this enrollment token:',
+        tokenInfo.token
+      );
+    }
+  }
+
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/login';
+  }
 
   return (
-    <div className="min-h-screen bg-surface-50 dark:bg-surface-950">
-      <Header />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        <div className="animate-in">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-surface-900 dark:text-surface-50 tracking-tight">
-                Dashboard
-              </h1>
-              <p className="mt-1 text-sm text-surface-500 dark:text-surface-400">
-                Overview of your Windows VMs
-              </p>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-              <Button onClick={() => setShowAddModal(true)} disabled={actionLoading === 'add'} className="w-full sm:w-auto">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Add VM
-              </Button>
-            </div>
+    <main className="min-h-screen bg-slate-950 text-white">
+      <header className="border-b border-slate-800">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5">
+          <Link href="/dashboard" className="text-xl font-bold">
+            <span className="text-cyan-400">◆</span> RDP Manager
+          </Link>
+
+          <nav className="flex items-center gap-5 text-sm">
+            <Link href="/dashboard" className="text-cyan-300">
+              Dashboard
+            </Link>
+            <Link href="/vms" className="text-slate-300 hover:text-white">
+              VMs
+            </Link>
+            <button
+              type="button"
+              onClick={logout}
+              className="border-l border-slate-700 pl-5 text-slate-300 hover:text-white"
+            >
+              Admin / Logout
+            </button>
+          </nav>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-7xl px-4 py-8">
+        <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <h1 className="text-3xl font-bold">Dashboard</h1>
+            <p className="mt-1 text-slate-400">
+              Manage your Windows VMs
+            </p>
           </div>
 
-          <StatsBar stats={stats} />
+          <button
+            type="button"
+            onClick={() => setShowAdd(true)}
+            className="rounded-lg bg-cyan-500 px-5 py-3 font-semibold text-slate-950 hover:bg-cyan-400"
+          >
+            + Add VM
+          </button>
+        </div>
 
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm" role="alert">
-              {error}
-            </div>
-          )}
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-800 bg-red-950/40 p-4 text-red-300">
+            {error}
+          </div>
+        )}
 
-          <div className="mt-6">
-            {/* Filters and Search */}
-            <Card className="mb-6">
-              <CardContent className="p-4 sm:p-6">
-                <div className="flex flex-col sm:flex-row gap-4">
-                  {/* Search */}
-                  <div className="relative flex-1 max-w-xs sm:max-w-md">
-                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-surface-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                    <input
-                      type="search"
-                      placeholder="Search by name or IP..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="input pl-10 w-full"
-                      aria-label="Search VMs"
-                    />
+        <div className="mb-8 grid gap-4 sm:grid-cols-4">
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+            <p className="text-sm text-slate-400">Total VMs</p>
+            <p className="mt-2 text-3xl font-bold">{vms.length}</p>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+            <p className="text-sm text-slate-400">Running</p>
+            <p className="mt-2 text-3xl font-bold text-green-400">
+              {running}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+            <p className="text-sm text-slate-400">Stopped</p>
+            <p className="mt-2 text-3xl font-bold text-yellow-400">
+              {stopped}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+            <p className="text-sm text-slate-400">RDP Healthy</p>
+            <p className="mt-2 text-3xl font-bold text-cyan-400">
+              {healthy}
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <input
+            type="search"
+            placeholder="Search by VM name or IP address..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:border-cyan-400"
+          />
+        </div>
+
+        {loading ? (
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-10 text-center text-slate-400">
+            Loading VMs...
+          </div>
+        ) : filteredVMs.length === 0 ? (
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-10 text-center">
+            <p className="text-slate-400">No VMs found.</p>
+            <button
+              type="button"
+              onClick={() => setShowAdd(true)}
+              className="mt-4 rounded-lg bg-cyan-500 px-4 py-2 font-semibold text-slate-950"
+            >
+              Add your first VM
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {filteredVMs.map((vm) => (
+              <section
+                key={vm.id}
+                className="rounded-xl border border-slate-700 bg-slate-900 p-5"
+              >
+                <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/vms/${vm.id}`}
+                      className="text-xl font-semibold text-cyan-300 hover:underline"
+                    >
+                      {vm.name}
+                    </Link>
+
+                    <p className="mt-1 text-slate-400">
+                      {vm.ip_address}
+                    </p>
+
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                      <span className={`rounded-full px-3 py-1 ${statusColor(vm.status)}`}>
+                        {vm.status}
+                      </span>
+
+                      <span className={`rounded-full px-3 py-1 ${rdpColor(vm.rdp_status)}`}>
+                        RDP: {vm.rdp_status}
+                      </span>
+
+                      <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-300">
+                        Last seen: {formatLastSeen(vm.last_seen)}
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Status Filter */}
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                    className="input max-w-xs sm:w-auto"
-                    aria-label="Filter by status"
-                  >
-                    <option value="all">All Status</option>
-                    <option value="running">Running</option>
-                    <option value="stopped">Stopped</option>
-                    <option value="starting">Starting</option>
-                    <option value="stopping">Stopping</option>
-                  </select>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:flex xl:flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => performAction(vm, 'status')}
+                      disabled={busy !== ''}
+                      className="rounded-lg border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {busy === `${vm.id}:status` ? 'Working...' : 'Status'}
+                    </button>
 
-                  {/* RDP Filter */}
-                  <select
-                    value={rdpFilter}
-                    onChange={(e) => setRdpFilter(e.target.value as RDPFilter)}
-                    className="input max-w-xs sm:w-auto"
-                    aria-label="Filter by RDP status"
-                  >
-                    <option value="all">All RDP Status</option>
-                    <option value="healthy">Healthy</option>
-                    <option value="degraded">Degraded</option>
-                    <option value="unknown">Unknown</option>
-                    <option value="unreachable">Unreachable</option>
-                  </select>
+                    <button
+                      type="button"
+                      onClick={() => performAction(vm, 'rdp-check')}
+                      disabled={busy !== ''}
+                      className="rounded-lg border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {busy === `${vm.id}:rdp-check` ? 'Working...' : 'RDP Check'}
+                    </button>
 
-                  {/* Online Only */}
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={onlineOnly}
-                      onChange={(e) => setOnlineOnly(e.target.checked)}
-                      className="w-4 h-4 rounded border-surface-300 text-primary-600 focus:ring-primary-500"
-                    />
-                    <span className="text-sm text-surface-700 dark:text-surface-300">Online only ({"<"} 5 min)</span>
-                  </label>
-                </div>
-              </CardContent>
-            </Card>
+                    <button
+                      type="button"
+                      onClick={() => performAction(vm, 'restart')}
+                      disabled={busy !== ''}
+                      className="rounded-lg border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      Restart
+                    </button>
 
-            {/* Sortable VM Grid */}
-            {loading && vms.length === 0 ? (
-              <div className="flex items-center justify-center py-12">
-                <svg className="animate-spin h-8 w-8 text-primary-600" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-              </div>
-            ) : vms.length > 0 ? (
-              <>
-                {/* Desktop Table View */}
-                <div className="hidden lg:block">
-                  <div className="overflow-x-auto">
-                    <table className="w-full" role="grid">
-                      <thead>
-                        <tr className="border-b border-surface-200 dark:border-surface-700">
-                          {sortableHeaders.map(({ key, label }) => (
-                            <th key={key} className="px-4 py-3 text-left text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider cursor-pointer hover:text-surface-700 dark:hover:text-surface-200 select-none"
-                                onClick={() => handleSort(key)}>
-                              <div className="flex items-center gap-1">
-                                {label}
-                                {sortIcon(key)}
-                              </div>
-                            </th>
-                          ))}
-                          <th className="px-4 py-3 text-left text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">
-                            RDP
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">
-                            Status
-                          </th>
-                          <th className="px-4 py-3 text-right text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-surface-200 dark:divide-surface-700">
-                        {vms.map((vm) => (
-                          <tr key={vm.id} className="hover:bg-surface-50 dark:hover:bg-surface-900/50">
-                            <td className="px-4 py-3">
-                              <div className="font-medium text-surface-900 dark:text-surface-100">{vm.name}</div>
-                              <div className="text-sm text-surface-500 dark:text-surface-400 font-mono">{vm.ip}</div>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-surface-900 dark:text-surface-100 font-mono">
-                              {vm.cpu}%
-                            </td>
-                            <td className="px-4 py-3 text-sm text-surface-900 dark:text-surface-100 font-mono">
-                              {vm.ram}%
-                            </td>
-                            <td className="px-4 py-3 text-sm text-surface-900 dark:text-surface-100 font-mono">
-                              {vm.disk}%
-                            </td>
-                            <td className="px-4 py-3 text-sm text-surface-500 dark:text-surface-400">
-                              {new Date(vm.lastSeen).toLocaleString()}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-surface-500 dark:text-surface-400">
-                              {new Date(vm.createdAt).toLocaleDateString()}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                vm.rdpHealth === 'healthy' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
-                                vm.rdpHealth === 'degraded' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300' :
-                                vm.rdpHealth === 'unreachable' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' :
-                                'bg-surface-100 text-surface-800 dark:bg-surface-800 dark:text-surface-300'
-                              }`}>
-                                {vm.rdpHealth.charAt(0).toUpperCase() + vm.rdpHealth.slice(1)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                vm.status === 'running' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
-                                vm.status === 'stopped' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' :
-                                vm.status === 'starting' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' :
-                                'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300'
-                              }`}>
-                                {vm.status.charAt(0).toUpperCase() + vm.status.slice(1)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleAction(vm.id, 'status')}
-                                  disabled={isActionDisabled(vm) || actionLoading === vm.id}
-                                  isLoading={actionLoading === vm.id}
-                                >
-                                  Status
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleAction(vm.id, 'rdp_check')}
-                                  disabled={isActionDisabled(vm) || actionLoading === vm.id}
-                                  isLoading={actionLoading === vm.id}
-                                >
-                                  RDP
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleAction(vm.id, 'restart')}
-                                  disabled={isActionDisabled(vm) || actionLoading === vm.id}
-                                  isLoading={actionLoading === vm.id}
-                                >
-                                  Restart
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => handleAction(vm.id, 'shutdown')}
-                                  disabled={isActionDisabled(vm) || actionLoading === vm.id}
-                                  isLoading={actionLoading === vm.id}
-                                >
-                                  Shutdown
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => window.location.href = `/vms/${vm.id}/logs`}
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                  </svg>
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => window.location.href = `/vms/${vm.id}/settings`}
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                  </svg>
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleDelete(vm.id)}
-                                >
-                                  <svg className="w-4 h-4 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <button
+                      type="button"
+                      onClick={() => performAction(vm, 'shutdown')}
+                      disabled={busy !== ''}
+                      className="rounded-lg border border-yellow-700 px-3 py-2 text-sm text-yellow-300 hover:bg-yellow-950/40 disabled:opacity-50"
+                    >
+                      Shutdown
+                    </button>
+
+                    <Link
+                      href={`/vms/${vm.id}/settings`}
+                      className="rounded-lg border border-slate-600 px-3 py-2 text-center text-sm hover:bg-slate-800"
+                    >
+                      Settings
+                    </Link>
+
+                    <button
+                      type="button"
+                      onClick={() => generateToken(vm)}
+                      disabled={busy !== ''}
+                      className="rounded-lg border border-cyan-700 px-3 py-2 text-sm text-cyan-300 hover:bg-cyan-950/40 disabled:opacity-50"
+                    >
+                      {busy === `${vm.id}:token` ? 'Working...' : 'Enrollment token'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => deleteVM(vm)}
+                      disabled={busy !== ''}
+                      className="rounded-lg border border-red-700 px-3 py-2 text-sm text-red-400 hover:bg-red-950/40 disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
 
-                {/* Mobile Card View */}
-                <div className="lg:hidden">
-                  <div className="grid grid-cols-1 gap-4" role="list" aria-label="Virtual Machines">
-                    {vms.map((vm) => (
-                      <VMCard
-                        key={vm.id}
-                        vm={vm}
-                        onRestart={() => handleAction(vm.id, 'restart')}
-                        onShutdown={() => handleAction(vm.id, 'shutdown')}
-                        onStatus={() => handleAction(vm.id, 'status')}
-                        onRDPCheck={() => handleAction(vm.id, 'rdp_check')}
-                        onLogs={() => window.location.href = `/vms/${vm.id}/logs`}
-                        onSettings={() => window.location.href = `/vms/${vm.id}/settings`}
-                        onDelete={() => handleDelete(vm.id)}
-                        disabled={isActionDisabled(vm)}
-                        actionLoading={actionLoading === vm.id}
-                      />
-                    ))}
+                <div className="mt-5 grid gap-4 border-t border-slate-800 pt-4 text-sm sm:grid-cols-4">
+                  <div>
+                    <p className="text-slate-500">CPU</p>
+                    <p className="mt-1 font-semibold">{vm.cpu_percent}%</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">RAM</p>
+                    <p className="mt-1 font-semibold">{vm.ram_percent}%</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Disk</p>
+                    <p className="mt-1 font-semibold">{vm.disk_percent}%</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Agent</p>
+                    <p className="mt-1 font-semibold">
+                      {vm.agent_version || 'Not enrolled'}
+                    </p>
                   </div>
                 </div>
-              </>
-            ) : (
-              <EmptyState
-                title="No VMs found"
-                description={searchQuery || statusFilter !== 'all' || rdpFilter !== 'all' || onlineOnly
-                  ? 'Try adjusting your search or filter criteria.'
-                  : 'Get started by adding your first Windows VM.'}
-                actionLabel="Add VM"
-                onAction={() => setShowAddModal(true)}
+              </section>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {showAdd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <form
+            onSubmit={createVM}
+            className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 p-6"
+          >
+            <h2 className="text-xl font-bold">Add VM</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              After creation, an enrollment token will be shown and copied.
+            </p>
+
+            <label className="mt-5 block text-sm text-slate-300">
+              VM name
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 outline-none focus:border-cyan-400"
+                placeholder="disposable-win-test-01"
               />
-            )}
+            </label>
+
+            <label className="mt-4 block text-sm text-slate-300">
+              Public IP address
+              <input
+                value={ipAddress}
+                onChange={(event) => setIpAddress(event.target.value)}
+                required
+                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-3 outline-none focus:border-cyan-400"
+                placeholder="203.0.113.10"
+              />
+            </label>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowAdd(false)}
+                className="rounded-lg border border-slate-600 px-4 py-2 text-slate-300"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={busy === 'add'}
+                className="rounded-lg bg-cyan-500 px-4 py-2 font-semibold text-slate-950 disabled:opacity-50"
+              >
+                {busy === 'add' ? 'Creating...' : 'Create VM'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {tokenInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 p-6">
+            <h2 className="text-xl font-bold">Enrollment token</h2>
+
+            <p className="mt-2 text-sm text-slate-400">
+              VM: {tokenInfo.vmName}
+            </p>
+
+            <textarea
+              value={tokenInfo.token}
+              readOnly
+              onFocus={(event) => event.currentTarget.select()}
+              className="mt-5 h-28 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 font-mono text-sm text-cyan-300 outline-none"
+            />
+
+            <p className="mt-2 text-xs text-yellow-300">
+              Expires: {tokenInfo.expiresAt}
+            </p>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={copyToken}
+                className="rounded-lg bg-cyan-500 px-4 py-2 font-semibold text-slate-950"
+              >
+                {tokenCopied ? 'Copied' : 'Copy token'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTokenInfo(null)}
+                className="rounded-lg border border-slate-600 px-4 py-2 text-slate-300"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
-      </main>
-
-      <Modal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        title="Add New VM"
-        description="Enter the VM details to add it to your inventory."
-        actionLabel="Add VM"
-        onAction={handleAddVM}
-        loading={actionLoading === 'add'}
-      >
-        <form onSubmit={(e) => { e.preventDefault(); handleAddVM(); }} className="space-y-4">
-          <Input
-            label="VM Name"
-            value={newVMName}
-            onChange={(e) => setNewVMName(e.target.value)}
-            placeholder="e.g., dev-windows-01"
-            required
-            autoFocus
-          />
-          <Input
-            label="IP Address"
-            type="text"
-            value={newVMIP}
-            onChange={(e) => setNewVMIP(e.target.value)}
-            placeholder="e.g., 20.123.45.67"
-            required
-          />
-        </form>
-      </Modal>
-
-      <Modal
-        isOpen={!!deleteVMId}
-        onClose={() => setDeleteVMId(null)}
-        title="Delete VM"
-        description={`This will remove the VM record from your dashboard. This action does not affect the actual VM or Azure resources.`}
-        actionLabel="Delete"
-        onAction={confirmDelete}
-        actionVariant="destructive"
-        loading={actionLoading === deleteVMId}
-      >
-        <p className="text-surface-600 dark:text-surface-400">Are you sure you want to delete this VM record?</p>
-      </Modal>
-
-      <footer className="border-t border-surface-200 dark:border-surface-800 py-6 px-4 sm:px-6 lg:px-8 mt-12">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-surface-500 dark:text-surface-400">
-          <p>RDP Manager v0.1.0 — Personal VM Management</p>
-          <p className="font-mono text-xs">Next.js 14 • Tailwind CSS • Cloudflare Workers</p>
-        </div>
-      </footer>
-    </div>
+      )}
+    </main>
   );
 }
