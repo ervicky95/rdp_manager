@@ -193,7 +193,7 @@ export class VMRepository {
     await this.db
       .prepare(
         `INSERT INTO commands (id, vm_id, command, status, created_at, timeout_seconds, expires_at, ack_retries)
-         VALUES (?, ?, 'pending', ?, ?, ?, ?, 0)`
+         VALUES (?, ?, ?, 'pending', ?, ?, ?, 0)`
       )
       .bind(id, vm_id, command, now, timeoutSeconds, expiresAt)
       .run();

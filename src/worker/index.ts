@@ -223,6 +223,25 @@ async function handleEnroll(db: D1Database, secrets: EnrollmentSecrets, request:
     agent_version: info.agentVersion,
   });
 
+  // Keep the VM row synchronized with the authoritative agent enrollment.
+  // The dashboard and command queue read agent_id from vms.
+  const enrolledAt = nowISO();
+  await db
+    .prepare(
+      `UPDATE vms
+       SET agent_id = ?, agent_version = COALESCE(?, agent_version),
+           last_seen = ?, updated_at = ?
+       WHERE id = ?`
+    )
+    .bind(
+      agentId,
+      info.agentVersion ?? null,
+      enrolledAt,
+      enrolledAt,
+      row.vm_id
+    )
+    .run();
+
   // Single-use: consuming the token after successful enrollment.
   await repo.consumeEnrollmentToken(row.id);
 
@@ -250,10 +269,32 @@ async function handlePoll(db: D1Database, secrets: EnrollmentSecrets, request: R
     body = {};
   }
 
+  const lastSeenAt = nowISO();
+  const agentInfo = parseAgentInfo(body);
+
   await new AgentRepository(db).touchAgent(agent.agent_id, {
-    lastSeenAt: nowISO(),
-    agentVersion: parseAgentInfo(body).agentVersion,
+    lastSeenAt,
+    agentVersion: agentInfo.agentVersion,
   });
+
+  // Keep dashboard presence synchronized on every authenticated poll.
+  // The condition prevents an agent from overwriting another agent's VM link.
+  await db
+    .prepare(
+      `UPDATE vms
+       SET agent_id = ?, agent_version = COALESCE(?, agent_version),
+           last_seen = ?, updated_at = ?
+       WHERE id = ? AND (agent_id IS NULL OR agent_id = ?)`
+    )
+    .bind(
+      agent.agent_id,
+      agentInfo.agentVersion ?? null,
+      lastSeenAt,
+      lastSeenAt,
+      agent.vm_id,
+      agent.agent_id
+    )
+    .run();
 
   const events = Array.isArray(body.events) ? body.events : [];
   await applyCompactEvents(db, agent.vm_id, agent.agent_id, events);

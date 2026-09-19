@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using VickyVM.Agent.Configuration;
 using VickyVM.Agent.Health;
 using VickyVM.Agent.Http;
@@ -44,6 +45,10 @@ public static class Program
             .AddEnvironmentVariables(prefix: "VICKYVM_");
 
         builder.Services.Configure<AgentConfiguration>(builder.Configuration);
+
+        // Register the nested AgentSettings object required by agent services.
+        builder.Services.AddSingleton<AgentSettings>(sp =>
+            sp.GetRequiredService<IOptions<AgentConfiguration>>().Value.Agent);
 
         // Structured local text logging (rolling JSON-lines files) + console.
         builder.Logging.ClearProviders();

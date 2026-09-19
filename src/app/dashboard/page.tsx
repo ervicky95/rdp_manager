@@ -518,7 +518,7 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-slate-500">Agent</p>
                     <p className="mt-1 font-semibold">
-                      {vm.agent_version || 'Not enrolled'}
+                      {vm.agent_id ? (vm.agent_version || 'Enrolled') : 'Not enrolled'}
                     </p>
                   </div>
                 </div>
