@@ -5,6 +5,7 @@ import { generateSecret, generateAgentId, hashSecret, timingSafeEqual } from '@/
 import { createEnrollmentToken, requireEnrollmentSecrets, serverNowIso } from '@/lib/enrollment';
 import type { EnrollmentSecrets } from '@/lib/enrollment';
 import { nowISO } from '@/lib/db/client';
+import { default as vinextHandler } from 'vinext/server/fetch-handler';
 
 export interface Env {
   DB: D1Database;
@@ -327,7 +328,7 @@ async function handleCreateVmToken(db: D1Database, secrets: EnrollmentSecrets, v
 }
 
 export default {
-  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const { method } = request;
     const pathname = url.pathname;
@@ -353,12 +354,9 @@ export default {
         }
       }
 
-      // Everything else: serve the app assets when a binding exists.
-      if (env.ASSETS) {
-        // The ASSETS binding is typed with the platform flavor of Request/Response.
-        return (await env.ASSETS.fetch(request as any)) as unknown as Response;
-      }
-      return new Response('RDP Manager Worker', { status: 200 });
+      // Delegate all other routes to the Vinext/App Router handler.
+      // This handles page routes (/, /login, /dashboard, /vms/[id]) and Next.js API routes.
+      return await vinextHandler(request, env, ctx);
     } catch (error) {
       // Do not log request bodies or credentials; log only the error type.
       const message = error instanceof Error ? error.message : 'Internal error';
