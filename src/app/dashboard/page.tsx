@@ -180,7 +180,12 @@ export default function DashboardPage() {
       }
       const data = await res.json();
       // Show enrollment token to user
-      alert(`VM created! Enrollment token (save this - shown once):\n${data.enrollment_token}\n\nExpires: ${data.expires_at}`);
+      try {
+          await navigator.clipboard.writeText(data.enrollment_token);
+          alert(`VM created! The enrollment token was copied to your clipboard.\n\nExpires: ${data.expires_at}`);
+        } catch {
+          window.prompt('Copy the enrollment token now:', data.enrollment_token);
+        }
       setShowAddModal(false);
       setNewVMName('');
       setNewVMIP('');

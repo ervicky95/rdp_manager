@@ -363,7 +363,12 @@ function SettingsContent({ id }: { id: string }) {
                     const res = await fetch(`/api/vms/${id}/enrollment-token`, { method: 'POST' });
                     if (!res.ok) throw new Error('Failed to generate token');
                     const data = await res.json();
-                    alert(`Enrollment token (save this - shown once):\n${data.enrollment_token}\n\nExpires: ${data.expires_at}`);
+                    try {
+                      await navigator.clipboard.writeText(data.enrollment_token);
+                      alert(`Enrollment token copied to your clipboard.\n\nExpires: ${data.expires_at}`);
+                    } catch {
+                      window.prompt('Copy the enrollment token now:', data.enrollment_token);
+                    }
                   } catch (err) {
                     alert(err instanceof Error ? err.message : 'Failed to generate token');
                   }
