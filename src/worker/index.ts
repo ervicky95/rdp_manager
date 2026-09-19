@@ -229,7 +229,8 @@ async function handleEnroll(db: D1Database, secrets: EnrollmentSecrets, request:
   await db
     .prepare(
       `UPDATE vms
-       SET agent_id = ?, agent_version = COALESCE(?, agent_version),
+       SET status = 'running',
+           agent_id = ?, agent_version = COALESCE(?, agent_version),
            last_seen = ?, updated_at = ?
        WHERE id = ?`
     )

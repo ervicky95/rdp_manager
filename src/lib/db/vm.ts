@@ -326,7 +326,7 @@ export class VMRepository {
     // Update VM with fresh status
     await this.db
       .prepare(
-        `UPDATE vms SET cpu_percent = ?, ram_percent = ?, disk_percent = ?, windows_version = ?, uptime_seconds = ?, rdp_status = ?, last_seen = ?, updated_at = ? WHERE id = ?`
+        `UPDATE vms SET status = 'running', cpu_percent = ?, ram_percent = ?, disk_percent = ?, windows_version = ?, uptime_seconds = ?, rdp_status = ?, last_seen = ?, updated_at = ? WHERE id = ?`
       )
       .bind(
         input.cpu_percent,
