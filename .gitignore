@@ -19,3 +19,6 @@ obj/
 *.sqlite
 .DS_Store
 .vinext/
+VickyVM.Agent/publish/
+VickyVM.Agent/bin/
+VickyVM.Agent/obj/

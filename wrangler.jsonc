@@ -1,25 +1,30 @@
 {
-  "name": "rdp-manager",
-  "main": "src/worker/index.ts",
-  "compatibility_date": "2024-11-01",
-  "compatibility_flags": ["nodejs_compat"],
-  "build": {
-    "command": "npm run build"
-  },
-  "dev": {
-    "port": 8787,
-    "ip": "127.0.0.1"
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "rdp-manager-db",
-      "database_id": "<your-database-id>"
-    }
-  ],
-  "vars": {
-    "ENVIRONMENT": "development"
-  }
-,
-  "assets": { "directory": "dist/client", "not_found_handling": "none", "binding": "ASSETS" }
+	"name": "rdp-manager",
+	"main": "src/worker/index.ts",
+	"compatibility_date": "2024-11-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"build": {
+		"command": "npm run build"
+	},
+	"dev": {
+		"port": 8787,
+		"ip": "127.0.0.1"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "rdp-manager-prod",
+			"database_id": "c3bc652b-4c49-413c-92ca-4d341c6c7ebc"
+		}
+	],
+	"vars": {
+		"ENVIRONMENT": "production"
+	},
+	"assets": {
+		"directory": "dist/client",
+		"not_found_handling": "none",
+		"binding": "ASSETS"
+	}
 }
