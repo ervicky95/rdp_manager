@@ -18,8 +18,10 @@ import type { NextRequest } from 'next/server';
 
 const PUBLIC_PATHS = new Set([
   '/login',
+  '/setup',
   '/api/health',
   '/api/agent/enroll',
+  '/api/auth/bootstrap',
   '/api/agent/poll',
 ]);
 

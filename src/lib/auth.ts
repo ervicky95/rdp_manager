@@ -271,7 +271,8 @@ export async function cleanupExpiredSessions(db: D1Database): Promise<number> {
 export async function bootstrapAdmin(
   db: D1Database,
   secrets: AuthSecrets,
-  email: string
+  email: string,
+  bootstrapSecret: string
 ): Promise<string | null> {
   if (!secrets.adminBootstrapSecret) {
     throw new Error('ADMIN_BOOTSTRAP_SECRET is not configured');
@@ -283,8 +284,26 @@ export async function bootstrapAdmin(
     return null; // Admin already exists, bootstrap not allowed
   }
 
-  // Verify bootstrap secret by hashing it
-  const providedHash = await hashSecret(secrets.adminBootstrapSecret, secrets.passwordSecret, 'admin-bootstrap');
+  if (!bootstrapSecret || typeof bootstrapSecret !== 'string') {
+    throw new Error('Invalid bootstrap secret');
+  }
+
+  // Verify the secret entered by the user against the configured Worker secret.
+  const expectedHash = await hashSecret(
+    secrets.adminBootstrapSecret,
+    secrets.passwordSecret,
+    'admin-bootstrap'
+  );
+
+  const providedHash = await hashSecret(
+    bootstrapSecret,
+    secrets.passwordSecret,
+    'admin-bootstrap'
+  );
+
+  if (!timingSafeEqual(providedHash, expectedHash)) {
+    throw new Error('Invalid bootstrap secret');
+  }
   const storedHash = await db
     .prepare('SELECT value FROM system_settings WHERE key = ?')
     .bind('admin_bootstrap_hash')
