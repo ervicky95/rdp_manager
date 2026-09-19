@@ -1,0 +1,46 @@
+{
+  "name": "rdp-manager",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint src --max-warnings=0",
+    "type-check": "tsc --noEmit",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "wrangler deploy",
+    "cf:db:create": "wrangler d1 create rdp-manager-db",
+    "cf:db:migrate": "wrangler d1 migrations apply rdp-manager-db",
+    "cf:db:migrate:local": "wrangler d1 migrations apply rdp-manager-db --local",
+    "dev:vinext": "vinext dev --port 3001",
+    "build:vinext": "vinext build",
+    "start:vinext": "wrangler dev --config dist/server/wrangler.json",
+    "deploy:vinext": "vinext-cloudflare deploy --config dist/server/wrangler.json"
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^5.20260918.1",
+    "next": "^16.3.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.56.0",
+    "@types/node": "22.12.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitejs/plugin-rsc": "^0.5.35",
+    "autoprefixer": "10.4.20",
+    "eslint": "8.57.1",
+    "eslint-config-next": "15.0.4",
+    "postcss": "^8.5.28",
+    "react-server-dom-webpack": "^19.3.0",
+    "tailwindcss": "3.4.14",
+    "typescript": "5.6.3",
+    "vinext": "^1.0.0-beta.10",
+    "vite": "^8.3.0",
+    "wrangler": "4.135.0"
+  },
+  "type": "module"
+}
