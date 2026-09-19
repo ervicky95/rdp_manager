@@ -7,7 +7,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 import { AuthRepository } from '@/lib/db/auth';
 import { validateSession, requireAuthSecrets, parseSessionToken, UserRow } from '@/lib/auth';
 import type { NextRequest } from 'next/server';
-import { env as workerEnv } from 'cloudflare:workers';
+import { getRequestEnv } from '@/lib/request-env';
 
 export interface AuthContext {
   db: D1Database;
@@ -60,7 +60,7 @@ export async function requireAdmin(context: AuthContext): Promise<UserRow> {
  * Creates an auth context from a NextRequest.
  */
 export function createAuthContext(request: NextRequest): AuthContext {
-  const env = workerEnv as unknown as Record<string, unknown> & {
+  const env = getRequestEnv() as unknown as Record<string, unknown> & {
     DB: D1Database;
   };
 

@@ -1,10 +1,10 @@
-import { env as workerEnv } from 'cloudflare:workers';
+import { getRequestEnv } from '@/lib/request-env';
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthRepository } from '@/lib/db/auth';
 import { verifyPassword, createSession, requireAuthSecrets, buildSessionCookie } from '@/lib/auth';
 
 function getRepo(request: NextRequest): AuthRepository {
-  const env = (workerEnv as any);
+  const env = (getRequestEnv() as any);
   if (!env?.DB) {
     throw new Error('Database binding not available');
   }
@@ -14,7 +14,7 @@ function getRepo(request: NextRequest): AuthRepository {
 export async function POST(request: NextRequest) {
   try {
     const repo = getRepo(request);
-    const env = (workerEnv as any);
+    const env = (getRequestEnv() as any);
     const secrets = requireAuthSecrets(env);
 
     const body = await request.json();

@@ -1,4 +1,4 @@
-import { env as workerEnv } from 'cloudflare:workers';
+import { getRequestEnv } from '@/lib/request-env';
 import { NextRequest, NextResponse } from 'next/server';
 import { VMRepository } from '@/lib/db/vm';
 import { AuthRepository } from '@/lib/db/auth';
@@ -6,7 +6,7 @@ import { createEnrollmentToken, requireEnrollmentSecrets } from '@/lib/enrollmen
 import { requireAuth, createAuthContext } from '@/lib/server-auth';
 
 function getVMRepo(request: NextRequest): VMRepository {
-  const env = (workerEnv as any);
+  const env = (getRequestEnv() as any);
   if (!env?.DB) {
     throw new Error('Database binding not available');
   }
@@ -14,7 +14,7 @@ function getVMRepo(request: NextRequest): VMRepository {
 }
 
 function getAuthRepo(request: NextRequest): AuthRepository {
-  const env = (workerEnv as any);
+  const env = (getRequestEnv() as any);
   if (!env?.DB) {
     throw new Error('Database binding not available');
   }
@@ -29,7 +29,7 @@ export async function POST(
     await requireAuth(createAuthContext(request));
     const repo = getVMRepo(request);
     const authRepo = getAuthRepo(request);
-    const env = (workerEnv as any);
+    const env = (getRequestEnv() as any);
     const secrets = requireEnrollmentSecrets(env);
     const { id } = await params;
 

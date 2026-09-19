@@ -1,10 +1,10 @@
-import { env as workerEnv } from 'cloudflare:workers';
+import { getRequestEnv } from '@/lib/request-env';
 import { NextRequest, NextResponse } from 'next/server';
 import { validateSession, requireAuthSecrets, parseSessionToken } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const env = workerEnv as any;
+    const env = getRequestEnv() as any;
     const secrets = requireAuthSecrets(env);
 
     const sessionToken = parseSessionToken(request.headers.get('cookie'));

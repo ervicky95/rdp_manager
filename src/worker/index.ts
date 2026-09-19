@@ -1,3 +1,4 @@
+import { withRequestEnv } from '../lib/request-env';
 import type { D1Database, ExecutionContext, Fetcher } from '@cloudflare/workers-types';
 import { VMRepository } from '@/lib/db/vm';
 import { AgentRepository } from '@/lib/db/agent';
@@ -356,7 +357,10 @@ export default {
 
       // Delegate all other routes to the Vinext/App Router handler.
       // This handles page routes (/, /login, /dashboard, /vms/[id]) and Next.js API routes.
-      return await handler.fetch(request, env, ctx);
+      return await withRequestEnv(
+        env as unknown as Record<string, unknown>,
+        () => handler.fetch(request, env as any, ctx),
+      );
     } catch (error) {
       // Do not log request bodies or credentials; log only the error type.
       const message = error instanceof Error ? error.message : 'Internal error';

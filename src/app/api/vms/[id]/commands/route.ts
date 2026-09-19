@@ -1,10 +1,10 @@
-import { env as workerEnv } from 'cloudflare:workers';
+import { getRequestEnv } from '@/lib/request-env';
 import { NextRequest, NextResponse } from 'next/server';
 import { VMRepository } from '@/lib/db/vm';
 import { requireAuth, createAuthContext } from '@/lib/server-auth';
 
 function getVMRepo(request: NextRequest): VMRepository {
-  const env = (workerEnv as any);
+  const env = (getRequestEnv() as any);
   if (!env?.DB) {
     throw new Error('Database binding not available');
   }

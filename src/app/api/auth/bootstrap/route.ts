@@ -1,4 +1,4 @@
-import { env as workerEnv } from 'cloudflare:workers';
+import { getRequestEnv } from '@/lib/request-env';
 import { NextRequest, NextResponse } from 'next/server';
 import { bootstrapAdmin, requireAuthSecrets } from '@/lib/auth';
 
@@ -9,7 +9,7 @@ type BootstrapBody = {
 
 export async function POST(request: NextRequest) {
   try {
-    const env = workerEnv as any;
+    const env = getRequestEnv() as any;
     const secrets = requireAuthSecrets(env);
 
     let body: BootstrapBody;
