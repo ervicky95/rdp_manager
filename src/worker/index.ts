@@ -356,7 +356,7 @@ export default {
 
       // Delegate all other routes to the Vinext/App Router handler.
       // This handles page routes (/, /login, /dashboard, /vms/[id]) and Next.js API routes.
-      return await handler.fetch(request);
+      return await handler.fetch(request, env, ctx);
     } catch (error) {
       // Do not log request bodies or credentials; log only the error type.
       const message = error instanceof Error ? error.message : 'Internal error';

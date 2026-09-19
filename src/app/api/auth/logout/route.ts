@@ -1,9 +1,10 @@
+import { env as workerEnv } from 'cloudflare:workers';
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthRepository } from '@/lib/db/auth';
 import { deleteSession, requireAuthSecrets, buildClearSessionCookie, parseSessionToken } from '@/lib/auth';
 
 function getRepo(request: NextRequest): AuthRepository {
-  const env = (request as any).env;
+  const env = (workerEnv as any);
   if (!env?.DB) {
     throw new Error('Database binding not available');
   }
@@ -13,7 +14,7 @@ function getRepo(request: NextRequest): AuthRepository {
 export async function POST(request: NextRequest) {
   try {
     const repo = getRepo(request);
-    const env = (request as any).env;
+    const env = (workerEnv as any);
     const secrets = requireAuthSecrets(env);
 
     const sessionToken = parseSessionToken(request.headers.get('cookie'));

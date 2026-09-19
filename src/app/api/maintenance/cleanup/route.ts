@@ -1,3 +1,4 @@
+import { env as workerEnv } from 'cloudflare:workers';
 import { NextRequest, NextResponse } from 'next/server';
 import { VMRepository } from '@/lib/db/vm';
 import { AuthRepository } from '@/lib/db/auth';
@@ -5,7 +6,7 @@ import { cleanupExpiredSessions, cleanupRateLimits, requireAuthSecrets } from '@
 import { requireAdmin, createAuthContext } from '@/lib/server-auth';
 
 function getVMRepo(request: NextRequest): VMRepository {
-  const env = (request as any).env;
+  const env = (workerEnv as any);
   if (!env?.DB) {
     throw new Error('Database binding not available');
   }
@@ -13,7 +14,7 @@ function getVMRepo(request: NextRequest): VMRepository {
 }
 
 function getAuthRepo(request: NextRequest): AuthRepository {
-  const env = (request as any).env;
+  const env = (workerEnv as any);
   if (!env?.DB) {
     throw new Error('Database binding not available');
   }
@@ -28,7 +29,7 @@ export async function POST(request: NextRequest) {
   try {
     // Allow cron jobs with a secret or admin auth
     const authHeader = request.headers.get('authorization');
-    const cronSecret = (request as any).env.CRON_SECRET;
+    const cronSecret = (workerEnv as any).CRON_SECRET;
 
     if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
       // Valid cron secret, proceed
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
 
     const repo = getVMRepo(request);
     const authRepo = getAuthRepo(request);
-    const env = (request as any).env;
+    const env = (workerEnv as any);
     const secrets = requireAuthSecrets(env);
 
     const results = {
