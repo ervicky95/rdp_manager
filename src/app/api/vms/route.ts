@@ -27,6 +27,9 @@ export async function GET(request: NextRequest) {
     await requireAuth(createAuthContext(request));
     const repo = getVMRepo(request);
 
+    // Mark stale VMs as stopped (offline transition) before returning results
+    await repo.markStaleVmsAsStopped(5);
+
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || undefined;
     const status = (searchParams.get('status') as any) || 'all';

@@ -170,7 +170,15 @@ export class VMRepository {
     }
 
     const now = nowISO();
-    const timeoutSeconds = command === 'status' ? 30 : command === 'rdp_check' ? 30 : 300;
+    // Timeouts must exceed poll interval (60s) to ensure agent can pick up command.
+    // Use at least 2 poll intervals (120s) for quick commands, 5 min for heavy ops.
+    const COMMAND_TIMEOUTS: Record<string, number> = {
+      restart: 300,
+      shutdown: 300,
+      status: 120,
+      rdp_check: 120,
+    };
+    const timeoutSeconds = COMMAND_TIMEOUTS[command] ?? 300;
     const expiresAt = new Date(Date.now() + timeoutSeconds * 1000).toISOString();
 
     // Duplicate prevention: check for existing pending/executing command of same type
@@ -439,6 +447,25 @@ export class VMRepository {
     const result = await this.db
       .prepare('DELETE FROM agent_status_reports WHERE received_at < ?')
       .bind(cutoff)
+      .run();
+    return result.meta.changes ?? 0;
+  }
+
+  /**
+   * Marks VMs as 'stopped' if they haven't been seen for more than the threshold.
+   * This handles the offline transition for agents that stop polling.
+   * @param thresholdMinutes Minutes of inactivity before marking as stopped (default: 5)
+   * @returns Number of VMs updated
+   */
+  async markStaleVmsAsStopped(thresholdMinutes = 5): Promise<number> {
+    const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
+    const result = await this.db
+      .prepare(
+        `UPDATE vms 
+         SET status = 'stopped', updated_at = ? 
+         WHERE status = 'running' AND (last_seen IS NULL OR last_seen < ?)`
+      )
+      .bind(nowISO(), cutoff)
       .run();
     return result.meta.changes ?? 0;
   }

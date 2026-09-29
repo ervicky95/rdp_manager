@@ -2,6 +2,7 @@ import { getRequestEnv } from '@/lib/request-env';
 import { NextRequest, NextResponse } from 'next/server';
 import { VMRepository } from '@/lib/db/vm';
 import { requireAuth, createAuthContext } from '@/lib/server-auth';
+import type { LogRow } from '@/types/db';
 
 function getVMRepo(request: NextRequest): VMRepository {
   const env = (getRequestEnv() as any);
@@ -9,6 +10,17 @@ function getVMRepo(request: NextRequest): VMRepository {
     throw new Error('Database binding not available');
   }
   return new VMRepository(env.DB);
+}
+
+function toLogEntry(log: LogRow) {
+  return {
+    id: log.id,
+    vmId: log.vm_id,
+    timestamp: log.timestamp,
+    level: log.level,
+    message: log.message,
+    createdAt: log.created_at,
+  };
 }
 
 export async function GET(
@@ -34,7 +46,9 @@ export async function GET(
     // Filter by level if specified
     const filteredLogs = level ? logs.filter(log => log.level === level) : logs;
 
-    return NextResponse.json({ logs: filteredLogs });
+    // Transform to camelCase for UI
+    const transformedLogs = filteredLogs.map(toLogEntry);
+    return NextResponse.json({ logs: transformedLogs });
   } catch (error) {
     const status = (error as any).status || 500;
     if (status === 401) {

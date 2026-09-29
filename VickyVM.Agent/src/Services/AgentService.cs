@@ -40,8 +40,8 @@ namespace VickyVM.Agent.Services;
 /// </summary>
 public sealed class AgentService : BackgroundService
 {
-    private const string GetStatusCommand = "get_status";
-    private const string CheckRdpCommand = "check_rdp";
+    private const string GetStatusCommand = "status";
+    private const string CheckRdpCommand = "rdp_check";
 
     private readonly ILogger<AgentService> _logger;
     private readonly AgentSettings _settings;
@@ -202,6 +202,20 @@ public sealed class AgentService : BackgroundService
             significant_events = report.SignificantEvents,
         });
         _pendingEvents.Add(new AgentEvent("command_completed", CommandId: command.Id, Result: payload));
+
+        // Emit status_report with metrics for dashboard
+        _pendingEvents.Add(new AgentEvent(
+            "status_report",
+            CommandId: command.Id,
+            CpuPercent: report.CpuUsagePercent,
+            RamPercent: report.MemoryUsagePercent,
+            DiskPercent: report.DiskUsagePercent,
+            WindowsVersion: GetWindowsVersion(),
+            AgentVersion: CurrentVersion(),
+            UptimeSeconds: GetUptimeSeconds(),
+            RdpStatus: report.Rdp?.Status?.ToLowerInvariant() ?? "unknown",
+            At: report.Timestamp));
+
         _logger.LogInformation("Reported manual status for command {IdSuffix}", Redact(command.Id));
     }
 
@@ -215,7 +229,47 @@ public sealed class AgentService : BackgroundService
             recovery_result = rdp.RecoveryResult,
         });
         _pendingEvents.Add(new AgentEvent("command_completed", CommandId: command.Id, Result: payload));
+
+        // Emit status_report with RDP-focused metrics
+        _pendingEvents.Add(new AgentEvent(
+            "status_report",
+            CommandId: command.Id,
+            CpuPercent: 0, // RDP check doesn't include CPU/RAM/Disk
+            RamPercent: 0,
+            DiskPercent: 0,
+            WindowsVersion: GetWindowsVersion(),
+            AgentVersion: CurrentVersion(),
+            UptimeSeconds: GetUptimeSeconds(),
+            RdpStatus: rdp.Status.ToLowerInvariant(),
+            At: rdp.CheckedAt));
+
         _logger.LogInformation("Reported manual RDP check for command {IdSuffix} (status {Status})", Redact(command.Id), rdp.Status);
+    }
+
+    private static string GetWindowsVersion()
+    {
+        try
+        {
+            var os = Environment.OSVersion;
+            return $"{os.Version.Major}.{os.Version.Minor}.{os.Version.Build}";
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
+
+    private static long GetUptimeSeconds()
+    {
+        try
+        {
+            // Use GetTickCount64 via P/Invoke or Environment.TickCount64 (.NET 6+)
+            return Environment.TickCount64 / 1000;
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     private async Task MaybeRunAutomaticRdpCheckAsync(CancellationToken ct)

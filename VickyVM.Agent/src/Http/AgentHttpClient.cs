@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -193,7 +194,9 @@ public sealed class AgentHttpClient : IAgentHttpClient
         public int PollIntervalSeconds { get; set; } = 60;
     }
 
-    private sealed record PollPayload(IReadOnlyList<AgentEvent> Events);
+    private sealed record PollPayload(
+        [property: JsonPropertyName("events")] IReadOnlyList<AgentEvent> Events
+    );
 
     private sealed class PollResponsePayload
     {

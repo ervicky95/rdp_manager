@@ -32,16 +32,7 @@ const ALLOWED_EVENT_TYPES = new Set([
   'status_report',
 ]);
 
-// Fixed allowlisted Windows commands that agents may execute
 const ALLOWED_COMMANDS = new Set(['restart', 'shutdown', 'status', 'rdp_check']);
-
-// Command timeout defaults (seconds)
-const COMMAND_TIMEOUTS: Record<string, number> = {
-  restart: 300,
-  shutdown: 300,
-  status: 30,
-  rdp_check: 30,
-};
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -280,11 +271,12 @@ async function handlePoll(db: D1Database, secrets: EnrollmentSecrets, request: R
 
   // Keep dashboard presence synchronized on every authenticated poll.
   // The condition prevents an agent from overwriting another agent's VM link.
+  // Also set status='running' on every poll to reflect active agent presence.
   await db
     .prepare(
       `UPDATE vms
        SET agent_id = ?, agent_version = COALESCE(?, agent_version),
-           last_seen = ?, updated_at = ?
+           last_seen = ?, updated_at = ?, status = 'running'
        WHERE id = ? AND (agent_id IS NULL OR agent_id = ?)`
     )
     .bind(

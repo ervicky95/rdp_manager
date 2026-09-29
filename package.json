@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint src --max-warnings=0",
-    "type-check": "tsc --noEmit",
+    "type-check": "next typegen && tsc --noEmit",
     "cf:dev": "wrangler dev",
     "cf:deploy": "wrangler deploy",
     "cf:db:create": "wrangler d1 create rdp-manager-db",

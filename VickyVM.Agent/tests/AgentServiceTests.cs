@@ -230,7 +230,7 @@ public class AgentServiceTests
             {
                 commandDelivered = true;
                 return new AgentHttpResult<PollResult>(
-                    new PollResult(new[] { new AgentCommand("cmd-s1", "get_status", DateTimeOffset.UtcNow) }, 1, DateTimeOffset.UtcNow),
+                    new PollResult(new[] { new AgentCommand("cmd-s1", "status", DateTimeOffset.UtcNow) }, 1, DateTimeOffset.UtcNow),
                     AgentHttpFailure.None);
             }
             return new AgentHttpResult<PollResult>(new PollResult(Array.Empty<AgentCommand>(), 1, DateTimeOffset.UtcNow), AgentHttpFailure.None);
@@ -267,7 +267,7 @@ public class AgentServiceTests
             {
                 commandDelivered = true;
                 return new AgentHttpResult<PollResult>(
-                    new PollResult(new[] { new AgentCommand("cmd-r1", "check_rdp", DateTimeOffset.UtcNow) }, 1, DateTimeOffset.UtcNow),
+                    new PollResult(new[] { new AgentCommand("cmd-r1", "rdp_check", DateTimeOffset.UtcNow) }, 1, DateTimeOffset.UtcNow),
                     AgentHttpFailure.None);
             }
             return new AgentHttpResult<PollResult>(new PollResult(Array.Empty<AgentCommand>(), 1, DateTimeOffset.UtcNow), AgentHttpFailure.None);
