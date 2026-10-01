@@ -71,6 +71,11 @@ function rdpColor(status: string) {
   return 'bg-slate-500/20 text-slate-300';
 }
 
+function formatPercent(value: number): string {
+  const clamped = Math.max(0, Math.min(100, value));
+  return `${clamped.toFixed(1)}%`;
+}
+
 export default function DashboardPage() {
   const [vms, setVms] = useState<VM[]>([]);
   const [loading, setLoading] = useState(true);
@@ -505,15 +510,15 @@ export default function DashboardPage() {
                 <div className="mt-5 grid gap-4 border-t border-slate-800 pt-4 text-sm sm:grid-cols-4">
                   <div>
                     <p className="text-slate-500">CPU</p>
-                    <p className="mt-1 font-semibold">{vm.cpu_percent}%</p>
+                    <p className="mt-1 font-semibold">{formatPercent(vm.cpu_percent)}</p>
                   </div>
                   <div>
                     <p className="text-slate-500">RAM</p>
-                    <p className="mt-1 font-semibold">{vm.ram_percent}%</p>
+                    <p className="mt-1 font-semibold">{formatPercent(vm.ram_percent)}</p>
                   </div>
                   <div>
                     <p className="text-slate-500">Disk</p>
-                    <p className="mt-1 font-semibold">{vm.disk_percent}%</p>
+                    <p className="mt-1 font-semibold">{formatPercent(vm.disk_percent)}</p>
                   </div>
                   <div>
                     <p className="text-slate-500">Agent</p>

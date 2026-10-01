@@ -57,25 +57,37 @@ function LogsContent({ id }: { id: string }) {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const [vmRes, logsRes, auditRes] = await Promise.all([
-        fetch(`/api/vms/${id}`),
-        fetch(`/api/vms/${id}/logs?limit=200${logLevelFilter !== 'all' ? `&level=${logLevelFilter}` : ''}`),
-        fetch(`/api/vms/${id}/audit-logs?limit=200${auditSeverityFilter !== 'all' ? `&severity=${auditSeverityFilter}` : ''}${auditEventTypeFilter !== 'all' ? `&event_type=${auditEventTypeFilter}` : ''}`),
-      ]);
+      setError(null);
 
+      // Fetch VM name (required)
+      const vmRes = await fetch(`/api/vms/${id}`);
       if (!vmRes.ok) throw new Error('Failed to fetch VM');
       const vmData = await vmRes.json();
       setVmName(vmData.vm.name);
 
-      if (!logsRes.ok) throw new Error('Failed to fetch logs');
-      const logsData = await logsRes.json();
-      setLogs(logsData.logs || []);
+      // Fetch logs and audit logs independently - tolerate one failure
+      const [logsRes, auditRes] = await Promise.allSettled([
+        fetch(`/api/vms/${id}/logs?limit=200${logLevelFilter !== 'all' ? `&level=${logLevelFilter}` : ''}`),
+        fetch(`/api/vms/${id}/audit-logs?limit=200${auditSeverityFilter !== 'all' ? `&severity=${auditSeverityFilter}` : ''}${auditEventTypeFilter !== 'all' ? `&event_type=${auditEventTypeFilter}` : ''}`),
+      ]);
 
-      if (!auditRes.ok) throw new Error('Failed to fetch audit logs');
-      const auditData = await auditRes.json();
-      setAuditLogs(auditData.logs || []);
+      if (logsRes.status === 'fulfilled' && logsRes.value.ok) {
+        const logsData = await logsRes.value.json();
+        setLogs(logsData.logs || []);
+      } else if (logsRes.status === 'fulfilled') {
+        console.error('Failed to fetch logs:', logsRes.value.status);
+      } else {
+        console.error('Logs fetch error:', logsRes.reason);
+      }
 
-      setError(null);
+      if (auditRes.status === 'fulfilled' && auditRes.value.ok) {
+        const auditData = await auditRes.value.json();
+        setAuditLogs(auditData.logs || []);
+      } else if (auditRes.status === 'fulfilled') {
+        console.error('Failed to fetch audit logs:', auditRes.value.status);
+      } else {
+        console.error('Audit logs fetch error:', auditRes.reason);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load logs');
     } finally {

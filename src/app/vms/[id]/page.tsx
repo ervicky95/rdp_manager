@@ -26,6 +26,11 @@ function formatUptime(seconds: number): string {
   return `${mins}m`;
 }
 
+function formatPercent(value: number): string {
+  const clamped = Math.max(0, Math.min(100, value));
+  return `${clamped.toFixed(1)}%`;
+}
+
 function getStatusColor(status: VM['status']): string {
   switch (status) {
     case 'running': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
@@ -218,15 +223,15 @@ function VMContent({ id }: { id: string }) {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                     <div>
                       <p className="text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">CPU</p>
-                      <p className="mt-1 text-2xl font-mono font-semibold text-surface-900 dark:text-surface-50">{vm.cpu}%</p>
+                      <p className="mt-1 text-2xl font-mono font-semibold text-surface-900 dark:text-surface-50">{formatPercent(vm.cpu)}</p>
                     </div>
                     <div>
                       <p className="text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">RAM</p>
-                      <p className="mt-1 text-2xl font-mono font-semibold text-surface-900 dark:text-surface-50">{vm.ram}%</p>
+                      <p className="mt-1 text-2xl font-mono font-semibold text-surface-900 dark:text-surface-50">{formatPercent(vm.ram)}</p>
                     </div>
                     <div>
                       <p className="text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">Disk</p>
-                      <p className="mt-1 text-2xl font-mono font-semibold text-surface-900 dark:text-surface-50">{vm.disk}%</p>
+                      <p className="mt-1 text-2xl font-mono font-semibold text-surface-900 dark:text-surface-50">{formatPercent(vm.disk)}</p>
                     </div>
                     <div>
                       <p className="text-xs font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">Uptime</p>

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -166,11 +167,24 @@ public sealed class AgentService : BackgroundService
                     case CheckRdpCommand:
                         await ExecuteCheckRdpAsync(command, ct);
                         break;
+                                case "restart":
+                        await SchedulePowerActionAsync(command, restart: true);
+                        break;
+
+                    case "shutdown":
+                        await SchedulePowerActionAsync(command, restart: false);
+                        break;
+
                     default:
-                        _pendingCommandIds.Add(command.Id);
-                        _logger.LogInformation(
-                            "Received allowlisted command {Command} (id {IdSuffix}); acknowledgment queued",
-                            command.Command, Redact(command.Id));
+                        _logger.LogWarning(
+                            "Rejected unknown command {Command} (id {IdSuffix})",
+                            command.Command,
+                            Redact(command.Id));
+
+                        _pendingEvents.Add(new AgentEvent(
+                            "command_failed",
+                            CommandId: command.Id,
+                            Result: "command is not allowlisted"));
                         break;
                 }
             }
@@ -270,6 +284,65 @@ public sealed class AgentService : BackgroundService
         {
             return 0;
         }
+    }
+
+    private Task SchedulePowerActionAsync(AgentCommand command, bool restart)
+    {
+        var action = restart ? "restart" : "shutdown";
+
+        _pendingEvents.Add(new AgentEvent(
+            "command_completed",
+            CommandId: command.Id,
+            Result: $"{action}_scheduled"));
+
+        _logger.LogWarning(
+            "Fixed {Action} action scheduled for command {IdSuffix}",
+            action,
+            Redact(command.Id));
+
+        // Wait long enough for the next 60-second poll to report completion.
+        // The executable path and arguments are fixed. No remote command text
+        // is accepted or interpolated.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(90));
+
+                if (!OperatingSystem.IsWindows())
+                {
+                    _logger.LogWarning(
+                        "{Action} requested on a non-Windows host",
+                        action);
+                    return;
+                }
+
+                var shutdownExe = Path.Combine(
+                    Environment.SystemDirectory,
+                    "shutdown.exe");
+
+                var arguments = restart
+                    ? "/r /t 0 /f /d p:0:0"
+                    : "/s /t 0 /f /d p:0:0";
+
+                using var process = Process.Start(new ProcessStartInfo
+                {
+                    FileName = shutdownExe,
+                    Arguments = arguments,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Fixed {Action} action failed",
+                    action);
+            }
+        }, CancellationToken.None);
+
+        return Task.CompletedTask;
     }
 
     private async Task MaybeRunAutomaticRdpCheckAsync(CancellationToken ct)

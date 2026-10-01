@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
       statusReportsDeleted: 0,
       sessionsDeleted: 0,
       rateLimitsDeleted: 0,
+      staleVmsStopped: 0,
     };
 
     // Clean up old logs (30-day retention)
@@ -62,9 +63,12 @@ export async function POST(request: NextRequest) {
     // Clean up old rate limits
     results.rateLimitsDeleted = await cleanupRateLimits(env.DB);
 
+    // Mark stale VMs as stopped (no poll for 5 minutes)
+    results.staleVmsStopped = await repo.markStaleVmsAsStopped(5);
+
     return NextResponse.json({
       success: true,
-      message: `Cleanup completed. Deleted: ${results.logsDeleted} logs, ${results.auditLogsDeleted} audit logs, ${results.statusReportsDeleted} status reports, ${results.sessionsDeleted} sessions, ${results.rateLimitsDeleted} rate limits.`,
+      message: `Cleanup completed. Deleted: ${results.logsDeleted} logs, ${results.auditLogsDeleted} audit logs, ${results.statusReportsDeleted} status reports, ${results.sessionsDeleted} sessions, ${results.rateLimitsDeleted} rate limits. Stale VMs stopped: ${results.staleVmsStopped}.`,
       details: results,
     });
   } catch (error) {

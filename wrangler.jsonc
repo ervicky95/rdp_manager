@@ -26,5 +26,11 @@
 		"directory": "dist/client",
 		"not_found_handling": "none",
 		"binding": "ASSETS"
-	}
+	},
+	"kv_namespaces": [
+		{
+			"binding": "AGENT_BIN",
+			"id": "b6004f24c14f4599b38507f1ec3a46d0"
+		}
+	]
 }
