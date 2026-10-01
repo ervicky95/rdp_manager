@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState, useRef } from 'react';
+import { api } from '@/lib/api';
 
 type VM = {
   id: string;
@@ -82,6 +83,7 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState('');
+  const busyRef = useRef<Set<string>>(new Set());
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState('');
   const [ipAddress, setIpAddress] = useState('');
@@ -93,22 +95,18 @@ export default function DashboardPage() {
       setLoading(true);
       setError('');
 
-      const response = await fetch('/api/vms?limit=100', {
-        cache: 'no-store',
-      });
+      const response = await api.get<{ vms: VM[] }>('/api/vms?limit=100');
 
-      if (response.status === 401) {
+      if (response.error?.status === 401) {
         window.location.href = '/login?redirect=/dashboard';
         return;
       }
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to load VMs');
+        throw response.error || new Error('Failed to load VMs');
       }
 
-      setVms(Array.isArray(data.vms) ? data.vms : []);
+      setVms(response.data?.vms || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load VMs');
     } finally {
@@ -141,34 +139,49 @@ export default function DashboardPage() {
   ) {
     const key = `${vm.id}:${action}`;
 
-    if (action === 'restart' || action === 'shutdown') {
+    // Two-step confirmation for restart/shutdown
+    if (action === 'restart') {
       const confirmed = window.confirm(
-        action === 'restart'
-          ? `Restart Windows on "${vm.name}"?`
-          : `Shut down Windows on "${vm.name}"?`
+        `Restart Windows on "${vm.name}"?\n\nThis will reboot the Windows VM. The agent will reconnect automatically after restart.`
       );
-
       if (!confirmed) return;
+      const typed = window.prompt('Type "restart" to confirm:', '');
+      if (typed !== 'restart') {
+        alert('Confirmation text does not match. Restart cancelled.');
+        return;
+      }
+    } else if (action === 'shutdown') {
+      const confirmed = window.confirm(
+        `Shut down Windows on "${vm.name}"?\n\nThis will power off the Windows VM. You will need to start it manually from your cloud provider console.`
+      );
+      if (!confirmed) return;
+      const typedName = window.prompt(`Type the VM name "${vm.name}" to confirm shutdown:`, '');
+      if (typedName !== vm.name) {
+        alert('VM name does not match. Shutdown cancelled.');
+        return;
+      }
     }
+
+    // Double-click protection
+    if (busyRef.current.has(key)) return;
+    busyRef.current.add(key);
 
     try {
       setBusy(key);
       setError('');
 
-      const response = await fetch(`/api/vms/${vm.id}/${action}`, {
-        method: 'POST',
-      });
-
-      const data = await response.json();
+      const response = await api.post<{ command: any; message: string }>(`/api/vms/${vm.id}/${action}`, {});
 
       if (!response.ok) {
-        throw new Error(data.error || `Failed to ${action}`);
+        throw response.error || new Error(`Failed to ${action}`);
       }
 
       await loadVMs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to ${action}`);
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error.message);
     } finally {
+      busyRef.current.delete(key);
       setBusy('');
     }
   }
@@ -180,23 +193,35 @@ export default function DashboardPage() {
 
     if (!confirmed) return;
 
+    // Second confirmation - type VM name
+    const typedName = window.prompt(`Type the VM name "${vm.name}" to confirm deletion:`, '');
+    if (typedName !== vm.name) {
+      alert('VM name does not match. Deletion cancelled.');
+      return;
+    }
+
+    const key = `${vm.id}:delete`;
+
+    // Double-click protection
+    if (busyRef.current.has(key)) return;
+    busyRef.current.add(key);
+
     try {
-      setBusy(`${vm.id}:delete`);
+      setBusy(key);
       setError('');
 
-      const response = await fetch(`/api/vms/${vm.id}`, {
-        method: 'DELETE',
-      });
+      const response = await api.delete<{ ok: boolean; deleted: boolean; id: string }>(`/api/vms/${vm.id}`);
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to delete VM');
+        throw response.error || new Error('Failed to delete VM');
       }
 
       await loadVMs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete VM');
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error.message);
     } finally {
+      busyRef.current.delete(key);
       setBusy('');
     }
   }
@@ -209,79 +234,75 @@ export default function DashboardPage() {
       return;
     }
 
+    const key = 'add';
+    if (busyRef.current.has(key)) return;
+    busyRef.current.add(key);
+
     try {
-      setBusy('add');
+      setBusy(key);
       setError('');
 
-      const response = await fetch('/api/vms', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          ip_address: ipAddress.trim(),
-        }),
+      const response = await api.post<{ vm: VM; enrollment_token: string; expires_at: string }>('/api/vms', {
+        name: name.trim(),
+        ip_address: ipAddress.trim(),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to add VM');
+        throw response.error || new Error('Failed to add VM');
       }
 
       setShowAdd(false);
       setName('');
       setIpAddress('');
 
-      if (data.enrollment_token) {
+      if (response.data?.enrollment_token) {
         setTokenInfo({
-          vmName: data.vm?.name || name.trim(),
-          token: data.enrollment_token,
-          expiresAt: data.expires_at,
+          vmName: response.data.vm?.name || name.trim(),
+          token: response.data.enrollment_token,
+          expiresAt: response.data.expires_at,
         });
         setTokenCopied(false);
       }
 
       await loadVMs();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add VM');
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error.message);
     } finally {
+      busyRef.current.delete(key);
       setBusy('');
     }
   }
 
   async function generateToken(vm: VM) {
+    const key = `${vm.id}:token`;
+    if (busyRef.current.has(key)) return;
+    busyRef.current.add(key);
+
     try {
-      setBusy(`${vm.id}:token`);
+      setBusy(key);
       setError('');
 
-      const response = await fetch(
+      const response = await api.post<{ enrollment_token: string; expires_at: string }>(
         `/api/vms/${vm.id}/enrollment-token`,
-        {
-          method: 'POST',
-        }
+        {}
       );
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate enrollment token');
+        throw response.error || new Error('Failed to generate enrollment token');
       }
 
       setTokenInfo({
         vmName: vm.name,
-        token: data.enrollment_token,
-        expiresAt: data.expires_at,
+        token: response.data!.enrollment_token,
+        expiresAt: response.data!.expires_at,
       });
       setTokenCopied(false);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to generate enrollment token'
-      );
+      const error = err instanceof Error ? err : new Error(String(err));
+      setError(error.message);
     } finally {
+      busyRef.current.delete(key);
       setBusy('');
     }
   }

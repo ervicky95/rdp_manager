@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardContent } from '@/components/ui/Card';
+import { api, type ApiError } from '@/lib/api';
 import type { VM } from '@/types/vm';
 
 interface VMPageProps {
@@ -54,16 +55,16 @@ function VMContent({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const actionLoadingRef = useRef<Set<string>>(new Set());
 
   const fetchVM = useCallback(async () => {
     try {
-      const res = await fetch(`/api/vms/${id}`);
-      if (!res.ok) {
-        if (res.status === 404) throw new Error('VM not found');
-        throw new Error('Failed to fetch VM');
+      const response = await api.get<{ vm: any }>(`/api/vms/${id}`);
+      if (!response.ok) {
+        if (response.error?.status === 404) throw new Error('VM not found');
+        throw response.error || new Error('Failed to fetch VM');
       }
-      const data = await res.json();
-      const apiVm = data.vm;
+      const apiVm = response.data!.vm;
       setVm({
         id: apiVm.id,
         name: apiVm.name,
@@ -94,32 +95,95 @@ function VMContent({ id }: { id: string }) {
 
   const handleAction = async (action: 'restart' | 'shutdown' | 'status' | 'rdp_check') => {
     if (!vm) return;
+
+    // Double-click protection
+    if (actionLoadingRef.current.has(action)) return;
+    actionLoadingRef.current.add(action);
     setActionLoading(action);
+
     try {
-      const res = await fetch(`/api/vms/${id}/${action}`, { method: 'POST' });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || `Failed to ${action}`);
+      const response = await api.post<{ command: any; message: string }>(`/api/vms/${id}/${action}`, {});
+      if (!response.ok) {
+        throw response.error || new Error(`Failed to ${action}`);
       }
       await fetchVM();
     } catch (err) {
-      alert(err instanceof Error ? err.message : `Failed to ${action}`);
+      const error = err instanceof Error ? err : new Error(String(err));
+      alert(error.message);
     } finally {
+      actionLoadingRef.current.delete(action);
       setActionLoading(null);
     }
   };
 
+  const handleRestart = async () => {
+    if (!vm) return;
+
+    // First confirmation
+    const confirmed = window.confirm(
+      `Restart Windows on "${vm.name}"?\n\nThis will reboot the Windows VM. The agent will reconnect automatically after restart.`
+    );
+    if (!confirmed) return;
+
+    // Second confirmation - type "restart" to confirm
+    const typed = window.prompt('Type "restart" to confirm:', '');
+    if (typed !== 'restart') {
+      alert('Confirmation text does not match. Restart cancelled.');
+      return;
+    }
+
+    await handleAction('restart');
+  };
+
+  const handleShutdown = async () => {
+    if (!vm) return;
+
+    // First confirmation
+    const confirmed = window.confirm(
+      `Shut down Windows on "${vm.name}"?\n\nThis will power off the Windows VM. You will need to start it manually from your cloud provider console.`
+    );
+    if (!confirmed) return;
+
+    // Second confirmation - type VM name to confirm
+    const typedName = window.prompt(`Type the VM name "${vm.name}" to confirm shutdown:`, '');
+    if (typedName !== vm.name) {
+      alert('VM name does not match. Shutdown cancelled.');
+      return;
+    }
+
+    await handleAction('shutdown');
+  };
+
   const handleDelete = async () => {
-    if (!vm || !confirm('Are you sure you want to delete this VM record? This does not affect the actual VM.')) return;
+    if (!vm) return;
+
+    // Two-step confirmation for delete
+    const confirmed = window.confirm(
+      `Delete "${vm.name}" from RDP Manager? This removes only application records. It will not contact or modify the Windows VM.`
+    );
+    if (!confirmed) return;
+
+    // Second confirmation - type VM name
+    const typedName = window.prompt('Type the VM name to confirm deletion:', '');
+    if (typedName !== vm.name) {
+      alert('VM name does not match. Deletion cancelled.');
+      return;
+    }
+
+    if (actionLoadingRef.current.has('delete')) return;
+    actionLoadingRef.current.add('delete');
+
     try {
-      const res = await fetch(`/api/vms/${id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to delete VM');
+      const response = await api.delete<{ ok: boolean; deleted: boolean; id: string }>(`/api/vms/${id}`);
+      if (!response.ok) {
+        throw response.error || new Error('Failed to delete VM');
       }
       window.location.href = '/dashboard';
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete VM');
+      const error = err instanceof Error ? err : new Error(String(err));
+      alert(error.message);
+    } finally {
+      actionLoadingRef.current.delete('delete');
     }
   };
 
@@ -156,7 +220,7 @@ function VMContent({ id }: { id: string }) {
     );
   }
 
-  const isActionDisabled = actionLoading !== null || !['running', 'starting', 'stopping'].includes(vm.status);
+  const isActionDisabled = !['running', 'starting', 'stopping'].includes(vm.status);
 
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-surface-950">
@@ -243,8 +307,8 @@ function VMContent({ id }: { id: string }) {
 
                   <div className="flex flex-wrap gap-2">
                     <Button
-                      onClick={() => handleAction('restart')}
-                      disabled={isActionDisabled}
+                      onClick={handleRestart}
+                      disabled={isActionDisabled || actionLoading === 'restart'}
                       isLoading={actionLoading === 'restart'}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -254,8 +318,8 @@ function VMContent({ id }: { id: string }) {
                     </Button>
                     <Button
                       variant="secondary"
-                      onClick={() => handleAction('shutdown')}
-                      disabled={isActionDisabled}
+                      onClick={handleShutdown}
+                      disabled={isActionDisabled || actionLoading === 'shutdown'}
                       isLoading={actionLoading === 'shutdown'}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -266,7 +330,7 @@ function VMContent({ id }: { id: string }) {
                     <Button
                       variant="outline"
                       onClick={() => handleAction('status')}
-                      disabled={isActionDisabled}
+                      disabled={isActionDisabled || actionLoading === 'status'}
                       isLoading={actionLoading === 'status'}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -277,7 +341,7 @@ function VMContent({ id }: { id: string }) {
                     <Button
                       variant="outline"
                       onClick={() => handleAction('rdp_check')}
-                      disabled={isActionDisabled}
+                      disabled={isActionDisabled || actionLoading === 'rdp_check'}
                       isLoading={actionLoading === 'rdp_check'}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
